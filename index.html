@@ -6,82 +6,134 @@
   <title>AnyClass — Медитация дыханием</title>
   <style>
     body {
-      margin: 0;
-      font-family: sans-serif;
+      margin: 0; font-family: sans-serif;
       background: radial-gradient(800px at 50% -20%, #1e293b 0%, #0f172a 55%);
-      color: #e5e7eb;
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
+      color: #e5e7eb; display: grid; place-items: center; min-height: 100vh;
     }
-    .app {
-      max-width: 720px;
-      width: 100%;
-      background: rgba(255,255,255,.05);
-      border-radius: 16px;
-      padding: 20px;
-      text-align: center;
-    }
+    .app { max-width: 720px; width: 100%; background: rgba(255,255,255,.05);
+      border-radius: 16px; padding: 20px; text-align: center; }
     h1 { margin-top: 0; }
-    .circle {
-      width: 250px;
-      height: 250px;
-      border-radius: 50%;
-      margin: 20px auto;
+    .circle { width: 250px; height: 250px; border-radius: 50%; margin: 20px auto;
       background: radial-gradient(circle, rgba(255,255,255,.2), rgba(255,255,255,.05));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 32px;
-      font-weight: bold;
-      transition: transform 4s ease-in-out;
-    }
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; font-weight: bold; transition: transform 4s ease-in-out; }
     .controls { margin-top: 20px; }
-    button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 12px;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      margin: 0 5px;
-    }
+    button { padding: 10px 20px; border: none; border-radius: 12px; font-size: 16px;
+      font-weight: bold; cursor: pointer; margin: 0 5px; }
     button.start { background: #38bdf8; color: #0f172a; }
     button.pause { background: #facc15; color: #0f172a; }
     button.reset { background: #f87171; color: #fff; }
+    select { padding: 8px 12px; border-radius: 12px; margin-bottom: 12px; font-size: 16px; }
+    #message { margin-top: 15px; font-size: 18px; font-weight: bold; color: #a5f3fc; }
+    .row { display:inline-flex; gap:10px; align-items:center; justify-content:center; margin:8px 0; }
+    label { font-size: 14px; color:#cbd5e1; }
   </style>
 </head>
 <body>
   <div class="app">
     <h1>Медитация дыханием</h1>
+
+    <div class="row">
+      <label for="duration">Длительность:</label>
+      <select id="duration">
+        <option value="1">1 минута</option>
+        <option value="3" selected>3 минуты</option>
+        <option value="5">5 минут</option>
+        <option value="10">10 минут</option>
+      </select>
+
+      <label style="margin-left:14px">
+        <input id="soundOn" type="checkbox" checked /> Звук
+      </label>
+    </div>
+
     <p id="phase">Нажми «Старт»</p>
     <div class="circle" id="circle">—</div>
+
     <div class="controls">
       <button class="start" onclick="start()">Старт</button>
       <button class="pause" onclick="togglePause()">Пауза</button>
       <button class="reset" onclick="reset()">Сброс</button>
     </div>
+
+    <div id="message"></div>
   </div>
 
   <script>
     const circle = document.getElementById('circle');
     const phaseLabel = document.getElementById('phase');
+    const message = document.getElementById('message');
+    const durationSelect = document.getElementById('duration');
+    const soundOn = document.getElementById('soundOn');
 
-    let phases = [
+    // ---- Дыхательный цикл 4-4-4-4 ----
+    const phases = [
       {name:"Вдох", sec:4, scale:1.2},
       {name:"Задержка", sec:4, scale:1.2},
       {name:"Выдох", sec:4, scale:0.8},
       {name:"Пауза", sec:4, scale:0.8},
     ];
     let i = 0, t = 0, timer, paused=false;
+    let sessionTimer, sessionRemaining = 0;
 
+    // ---- Аудио (Web Audio API) ----
+    let audioCtx;
+    function ensureCtx(){
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    function tone(freq=660, dur=0.25, type='sine', gain=0.05){
+      if (!soundOn.checked) return;
+      ensureCtx();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.value = 0.0001;
+      o.connect(g); g.connect(audioCtx.destination);
+      const t0 = audioCtx.currentTime;
+      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    }
+    function chimeStart(){
+      // лёгкий «дзынь»: два быстрых тона
+      tone(660, 0.18); setTimeout(()=>tone(880, 0.18), 140);
+    }
+    function gongEnd(){
+      // мягкий «гонг»: нисходящая пара
+      tone(520, 0.28, 'sine'); setTimeout(()=>tone(390, 0.35, 'sine'), 220);
+    }
+
+    // ---- Логика сессии ----
     function start(){
       if(timer) return;
+      message.textContent = "";
+      i = 0;
+      sessionRemaining = Number(durationSelect.value) * 60; // сек
+      chimeStart(); // звук перед стартом
+      runSession();
       nextPhase();
     }
 
+    function runSession(){
+      sessionTimer = setInterval(()=>{
+        if(!paused){
+          sessionRemaining--;
+          if(sessionRemaining <= 0){
+            clearInterval(sessionTimer);
+            clearInterval(timer); timer=null;
+            gongEnd(); // звук при завершении
+            phaseLabel.textContent = "Отличная работа!";
+            circle.textContent = "✓";
+            circle.style.transform="scale(1)";
+            message.textContent = "Сессия завершена 🙏";
+          }
+        }
+      },1000);
+    }
+
     function nextPhase(){
-      let phase = phases[i];
+      const phase = phases[i];
       t = phase.sec;
       phaseLabel.textContent = phase.name;
       circle.textContent = t;
@@ -94,23 +146,20 @@
             clearInterval(timer);
             timer=null;
             i=(i+1)%phases.length;
-            nextPhase();
+            if(sessionRemaining>0) nextPhase();
           }
         }
       },1000);
     }
 
-    function togglePause(){
-      paused = !paused;
-    }
-
+    function togglePause(){ paused = !paused; }
     function reset(){
-      clearInterval(timer);
-      timer=null;
-      i=0; t=0;
+      clearInterval(timer); clearInterval(sessionTimer);
+      timer=null; i=0; t=0; paused=false;
       circle.style.transform="scale(1)";
       circle.textContent="—";
       phaseLabel.textContent="Нажми «Старт»";
+      message.textContent="";
     }
   </script>
 </body>
